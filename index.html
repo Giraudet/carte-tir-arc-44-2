@@ -22,10 +22,13 @@ main{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:
 .late{margin-top:8px;font-size:.85rem;background:#fff1e0;padding:6px 8px;border-radius:6px}
 mark.p{background:#cfe4ff}
 mark{background:#ffe3b3;padding:0 6px;border-radius:4px;font-size:.8rem}
-#panel{position:fixed;left:0;right:0;bottom:0;max-height:70vh;overflow:auto;background:#fff;padding:16px;border-top:3px solid var(--ink);box-shadow:0 -6px 20px #0003;z-index:1000}
-#panel[hidden]{display:none}
-#panel input{width:100%;margin:4px 0 10px}
-#sel{padding-left:18px}
+dialog{border:0;border-radius:12px;padding:16px;width:min(92vw,420px);box-shadow:0 10px 40px #0005}
+dialog::backdrop{background:#0006}
+dialog label{display:block;margin:6px 0;font-size:.9rem}
+dialog input,dialog select{width:100%;margin-top:3px}
+dialog h3{margin:0 0 6px}
+.card button{margin:6px 6px 0 0}
+mark.st{background:#e8eef3}mark.ok{background:#d4f0dc}mark.ko{background:#fbd5d5}
 .leaflet-popup-content .card{box-shadow:none;padding:6px 8px;margin-top:6px;background:var(--bg)}
 </style>
 </head>
@@ -33,18 +36,11 @@ mark{background:#ffe3b3;padding:0 6px;border-radius:4px;font-size:.8rem}
 <header>
   <h1>Concours de tir à l'arc en Loire-Atlantique</h1>
   <select id="f" aria-label="Discipline"></select>
-  <button id="cart">Mes inscriptions (0)</button>
+  <button id="cart">Mon suivi</button>
 </header>
 <div id="map"></div>
 <main id="list"></main>
-<aside id="panel" hidden>
-  <button id="close" style="float:right">Fermer</button>
-  <h2 style="margin-top:0">Mes inscriptions</h2>
-  <label>Nom et prénom<input id="nom" autocomplete="name"></label>
-  <label>Numéro de licence<input id="lic"></label>
-  <ul id="sel"></ul>
-  <p style="font-size:.85rem">Le bouton « Écrire au club » ouvre votre messagerie avec un message prêt à envoyer à l'organisateur.</p>
-</aside>
+<dialog id="dlg"></dialog>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
 <script>
@@ -109,12 +105,19 @@ const layer = L.layerGroup().addTo(map);
 
 $("#f").innerHTML = '<option value="">Toutes les disciplines</option>' + Object.entries(D).map(([k,v]) => `<option value="${k}">${v}</option>`).join("") + '<option value="P">Para-tir</option>';
 
-const INSCRIPTIONS = false; // passer à true quand le formulaire d'inscription est prêt
+const API = "https://script.google.com/macros/s/AKfycbyCEfuy-oAqplzJMgBbuWld7ZBn9W2nkGpzoQN9PcoSt9ZS3xw98BRBHFGFjbqdGmaK/exec";
+const INSCRIPTIONS = true;
 const DELAI = 15; // jours avant le concours : fin des inscriptions par le club
 const limite = e => { const d = new Date(e.a+"T12:00"); d.setDate(d.getDate()-DELAI); return d.toISOString().slice(0,10); };
-const reg = e => !INSCRIPTIONS ? "" : limite(e) >= today
-  ? `<div class="lk">Inscription par le club jusqu'au ${new Date(limite(e)+"T12:00").toLocaleDateString("fr-FR",{day:"numeric",month:"short"})}</div><button data-id="${e.id}">${cart.has(e.id)?"Retirer":"S'inscrire"}</button>`
-  : `<div class="late">Date limite passée : l'inscription par le club n'est plus possible. Une inscription directe auprès de l'organisateur reste probablement possible, à faire vous-même.</div>`;
+const nb = {};   // nombre d'inscrits du club par concours
+const stock = (k, v) => { try { if (v === undefined) return localStorage.getItem(k) || ""; localStorage.setItem(k, v); } catch (x) { return ""; } return ""; };
+const jour = d => new Date(d+"T12:00").toLocaleDateString("fr-FR",{day:"numeric",month:"short"});
+const reg = e => !INSCRIPTIONS ? "" :
+  `<div class="lk">${nb[e.id] ? nb[e.id]+" inscrit"+(nb[e.id]>1?"s":"")+" du club" : "Aucun inscrit du club pour le moment"}</div>` +
+  (limite(e) >= today
+    ? `<div class="lk">Inscription par le club jusqu'au ${jour(limite(e))}</div><button data-act="reg" data-id="${e.id}">S'inscrire</button>`
+    : `<div class="late">Date limite passée : l'inscription par le club n'est plus possible. Une inscription directe auprès de l'organisateur reste probablement possible, à faire vous-même.</div>`) +
+  `<button data-act="list" data-id="${e.id}">Voir les inscrits</button>`;
 const card = e => `<article class="card" style="--c:${col[e.d]}"><b>${e.t}</b> ${e.p?`<mark class="p">Para-tir</mark> `:""}${e.s?`<mark>${e.s}</mark>`:""}<div>${fmt(e.a,e.b)}, ${e.v}</div><div>${D[e.d]}, ${e.c}</div><div class="lk">${e.mz?`<a href="${e.mz}" target="_blank" rel="noopener">Mandat (PDF)</a> `:""}<a href="https://www.ffta.fr/epreuve/${e.id}" target="_blank" rel="noopener">Détail FFTA</a></div>${reg(e)}</article>`;
 
 function render(){
@@ -129,33 +132,79 @@ function render(){
       .addTo(layer).bindPopup(`<b>${v}</b>`+l.map(card).join(""),{maxHeight:260});
   }
   $("#list").innerHTML = shown.map(card).join("") || "<p>Aucun concours à venir pour ce choix.</p>";
-  $("#cart").textContent = `Mes inscriptions (${cart.size})`;
-  panel();
 }
 
-function panel(){
-  const n = $("#nom").value, li = $("#lic").value;
-  $("#sel").innerHTML = ev.filter(e=>cart.has(e.id)).map(e => {
-    const body = `Bonjour,\n\nJe souhaite m'inscrire au concours « ${e.t} » (${fmt(e.a,e.b)}, ${e.v}).\n\nNom : ${n}\nNuméro de licence : ${li}\n\nCordialement`;
-    const link = e.m ? `<a href="mailto:${e.m}?subject=${encodeURIComponent("Inscription : "+e.t)}&body=${encodeURIComponent(body)}">Écrire au club</a>` : "pas d'adresse connue";
-    return `<li><b>${e.t}</b>, ${e.c}. ${link}</li>`;
-  }).join("") || "<li>Aucun concours choisi.</li>";
+const dlg = $("#dlg");
+const esc = s => String(s == null ? "" : s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const ouvrir = html => { dlg.innerHTML = html + '<p><button type="button" id="fermer">Fermer</button></p>'; $("#fermer").onclick = () => dlg.close(); if (!dlg.open) dlg.showModal(); };
+const champ = (id, label, val = "", type = "text") => `<label>${label}<input id="${id}" type="${type}" value="${esc(val)}"></label>`;
+const ARCS = ["Classique","Poulies","Arc nu","Arc de chasse","Longbow"];
+const post = async o => (await fetch(API, {method:"POST", headers:{"Content-Type":"text/plain;charset=utf-8"}, body:JSON.stringify(o)})).json();
+const get = async q => (await fetch(API + "?" + new URLSearchParams(q))).json();
+
+function inscrire(e){
+  ouvrir(`<h3>S'inscrire : ${esc(e.t)}</h3><p>${fmt(e.a,e.b)}, ${esc(e.v)}</p>`
+    + champ("code","Code du club",stock("code"),"password") + champ("nom","Nom",stock("nom")) + champ("prenom","Prénom",stock("prenom"))
+    + champ("lic","Numéro de licence",stock("lic"))
+    + `<label>Arc<select id="arc">${ARCS.map(a => `<option>${a}</option>`).join("")}</select></label>`
+    + champ("cat","Catégorie (ex : Senior 1 homme)",stock("cat")) + champ("dep","N° de départ souhaité (ex : départ 1)")
+    + champ("contact","Téléphone ou e-mail",stock("contact"))
+    + `<button type="button" id="envoyer">Envoyer mon inscription</button><p id="msg"></p>`);
+  $("#envoyer").onclick = async () => {
+    const v = id => $("#"+id).value.trim();
+    ["code","nom","prenom","lic","cat","contact"].forEach(k => stock(k, v(k)));
+    $("#msg").textContent = "Envoi en cours…";
+    try {
+      const r = await post({code:v("code"), concours_id:e.id, concours:e.t, date:fmt(e.a,e.b), nom:v("nom"), prenom:v("prenom"),
+        licence:v("lic"), arc:$("#arc").value, categorie:v("cat"), depart:v("dep"), contact:v("contact")});
+      if (r.ok){ nb[e.id] = (nb[e.id]||0) + 1; render(); $("#msg").textContent = "Inscription enregistrée. Suivez son état avec « Mon suivi »."; }
+      else $("#msg").textContent = r.erreur || "L'inscription a échoué.";
+    } catch (x) { $("#msg").textContent = "Connexion impossible, réessayez."; }
+  };
 }
 
-document.addEventListener("click", ev2 => {
-  const id = ev2.target.dataset && ev2.target.dataset.id;
-  if (id){ cart.has(id) ? cart.delete(id) : cart.add(id); render(); }
+function inscrits(e){
+  ouvrir(`<h3>Inscrits : ${esc(e.t)}</h3>` + champ("code","Code du club",stock("code"),"password")
+    + `<button type="button" id="go">Afficher</button><div id="res"></div>`);
+  $("#go").onclick = async () => {
+    stock("code", $("#code").value.trim());
+    try {
+      const r = await get({action:"list", concours:e.id, code:$("#code").value.trim()});
+      $("#res").innerHTML = !Array.isArray(r) ? esc(r.erreur || "Accès refusé.")
+        : r.length ? "<ul>" + r.map(x => `<li>${esc(x.prenom)} ${esc(x.nom)}, ${esc(x.arc)}</li>`).join("") + "</ul>" : "<p>Aucun inscrit pour le moment.</p>";
+    } catch (x) { $("#res").textContent = "Connexion impossible, réessayez."; }
+  };
+}
+
+function suivi(){
+  ouvrir(`<h3>Mon suivi</h3>` + champ("code","Code du club",stock("code"),"password") + champ("lic","Numéro de licence",stock("lic"))
+    + `<button type="button" id="go">Voir mes inscriptions</button><div id="res"></div>`);
+  $("#go").onclick = async () => {
+    stock("code", $("#code").value.trim()); stock("lic", $("#lic").value.trim());
+    try {
+      const r = await get({action:"mine", code:$("#code").value.trim(), licence:$("#lic").value.trim()});
+      $("#res").innerHTML = !Array.isArray(r) ? esc(r.erreur || "Accès refusé.")
+        : r.length ? "<ul>" + r.map(x => `<li><b>${esc(x.concours)}</b>, ${esc(x.date)}${x.depart ? ", départ " + esc(x.depart) : ""}<br><mark class="st ${x.statut==="Validée"?"ok":x.statut==="Plus de place"?"ko":""}">${esc(x.statut)}</mark></li>`).join("") + "</ul>"
+        : "<p>Aucune inscription trouvée pour cette licence.</p>";
+    } catch (x) { $("#res").textContent = "Connexion impossible, réessayez."; }
+  };
+}
+
+document.addEventListener("click", x => {
+  const b = x.target.closest("button[data-act]");
+  if (!b) return;
+  const e = ev.find(z => z.id === b.dataset.id);
+  if (e) b.dataset.act === "reg" ? inscrire(e) : inscrits(e);
 });
 $("#f").onchange = render;
-$("#cart").onclick = () => $("#panel").hidden = false;
-$("#close").onclick = () => $("#panel").hidden = true;
-$("#nom").oninput = $("#lic").oninput = panel;
+$("#cart").onclick = suivi;
 
 fetch("events.json?" + Date.now()).then(r=>r.json()).then(j => {
   if (Array.isArray(j) && j.length){ ev = j.map(parse); render(); }
 }).catch(()=>{});
 
 $("#cart").hidden = !INSCRIPTIONS;
+if (INSCRIPTIONS) fetch(API + "?action=counts").then(r => r.json()).then(c => { Object.assign(nb, c); render(); }).catch(() => {});
 render();
 </script>
 </body>
