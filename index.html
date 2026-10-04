@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Concours de tir à l'arc en Loire-Atlantique</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css">
+<style>
+:root{--ink:#10253a;--bg:#eef2f5;--line:#cfd9e2}
+*{box-sizing:border-box}
+body{margin:0;font:16px/1.4 "Avenir Next","Segoe UI",Roboto,sans-serif;color:var(--ink);background:var(--bg)}
+header{background:var(--ink);color:#fff;padding:12px 16px;display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+h1{font-size:1.15rem;margin:0;flex:1 1 100%}
+select,button,input{font:inherit;padding:8px 10px;border-radius:8px;border:1px solid var(--line)}
+button{background:#fff;color:var(--ink);cursor:pointer;font-weight:600}
+#cart{background:#f2b705;border-color:#f2b705}
+#map{height:50vh;min-height:320px}
+main{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px;padding:16px}
+.card{background:#fff;border-left:5px solid var(--c);border-radius:8px;padding:10px 12px;font-size:.92rem}
+.card button{margin-top:8px;padding:5px 12px}
+.lk{margin-top:6px;font-size:.85rem}.lk a{color:var(--ink);margin-right:10px}
+.late{margin-top:8px;font-size:.85rem;background:#fff1e0;padding:6px 8px;border-radius:6px}
+mark.p{background:#cfe4ff}
+mark{background:#ffe3b3;padding:0 6px;border-radius:4px;font-size:.8rem}
+#panel{position:fixed;left:0;right:0;bottom:0;max-height:70vh;overflow:auto;background:#fff;padding:16px;border-top:3px solid var(--ink);box-shadow:0 -6px 20px #0003;z-index:1000}
+#panel[hidden]{display:none}
+#panel input{width:100%;margin:4px 0 10px}
+#sel{padding-left:18px}
+.leaflet-popup-content .card{box-shadow:none;padding:6px 8px;margin-top:6px;background:var(--bg)}
+</style>
+</head>
+<body>
+<header>
+  <h1>Concours de tir à l'arc en Loire-Atlantique</h1>
+  <select id="f" aria-label="Discipline"></select>
+  <button id="cart">Mes inscriptions (0)</button>
+</header>
+<div id="map"></div>
+<main id="list"></main>
+<aside id="panel" hidden>
+  <button id="close" style="float:right">Fermer</button>
+  <h2 style="margin-top:0">Mes inscriptions</h2>
+  <label>Nom et prénom<input id="nom" autocomplete="name"></label>
+  <label>Numéro de licence<input id="lic"></label>
+  <ul id="sel"></ul>
+  <p style="font-size:.85rem">Le bouton « Écrire au club » ouvre votre messagerie avec un message prêt à envoyer à l'organisateur.</p>
+</aside>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
+<script>
+/* Les concours sont lus dans events.json, mis à jour chaque nuit par scraper.py.
+   La liste ci-dessous ne sert que de secours si events.json est introuvable. */
+
+const D = {S:"Salle 18 m", L:"Loisirs", C:"Extérieur et parcours"};
+const col = {S:"#1f4e79", L:"#2e8b57", C:"#c0392b"};
+const V = {"Le Bignon":[47.067,-1.483],"Pornic":[47.115,-2.102],"La Turballe":[47.347,-2.511],"La Haye-Fouassière":[47.267,-1.400],"Orvault":[47.271,-1.623],"Pontchâteau":[47.433,-2.090],"Rezé":[47.183,-1.550],"Clisson":[47.087,-1.283],"Saint-Nazaire":[47.273,-2.214],"Vertou":[47.170,-1.469],"La Baule-Escoublac":[47.286,-2.390],"Saint-Herblain":[47.212,-1.649],"Guérande":[47.329,-2.429],"Nantes":[47.218,-1.554],"Bouguenais":[47.179,-1.623],"Montoir-de-Bretagne":[47.317,-2.150],"Carquefou":[47.297,-1.490],"Maisdon-sur-Sèvre":[47.100,-1.317],"Piriac-sur-Mer":[47.380,-2.545],"Châteaubriant":[47.717,-1.378],"Basse-Goulaine":[47.211,-1.474],"Donges":[47.317,-2.077],"Couëron":[47.215,-1.720]};
+
+// id, titre, début, fin, discipline, club, ville, email, statut
+const E = [
+["26480","Concours salle octobre","2026-10-11","2026-10-11","S","Les Archers du Bignon","Le Bignon","gael.tenailleau@free.fr",""],
+["26484","Tir en salle 18 m","2026-10-17","2026-10-18","S","Les Archers Pornicais","Pornic","les.archers.pornicais@gmail.com",""],
+["26492","Target à La Turballe","2026-10-24","2026-10-24","S","Les Flèches Turballaises","La Turballe","benjamin.jube44420@gmail.com",""],
+["26495","Tir rose","2026-10-24","2026-10-24","S","Arc'Haye","La Haye-Fouassière","brenot.delphine4@gmail.com",""],
+["26496","La Turballe en salle","2026-10-25","2026-10-25","S","Les Flèches Turballaises","La Turballe","benjamin.jube44420@gmail.com",""],
+["26499","Tir en salle 18 m","2026-10-25","2026-10-25","S","Arc'Haye","La Haye-Fouassière","brenot.delphine4@gmail.com",""],
+["27823","Tir en salle 18 m","2026-10-31","2026-11-01","S","Archers d'Orvault","Orvault","archers.orvault@gmail.com",""],
+["26500","Nocturne 2027","2026-10-31","2026-10-31","S","Compagnie des Archers du Brivet","Pontchâteau","greg.guibert44@free.fr",""],
+["26507","2 x 18 m sélectif championnat de France","2026-11-01","2026-11-01","S","La Flèche Ragonnaise","Rezé","presidence.flecheragonnaise@gmail.com",""],
+["26510","Clisson-TAS 2027","2026-11-07","2026-11-08","S","Cie d'Arc Olivier de Clisson","Clisson","ciearcolison@orange.fr",""],
+["26516","Concours salle 18 m","2026-11-07","2026-11-08","S","Les Archers Nazairiens","Saint-Nazaire","throy@orange.fr",""],
+["26524","Tir en salle","2026-11-14","2026-11-15","S","Cie Archers de Vertou","Vertou","bureau@vertouarc.fr",""],
+["26528","Sélectif La Baule","2026-11-15","2026-11-15","S","A.S.C.E. Tir à l'arc","La Baule-Escoublac","secretariat.ascetiralarc@gmail.com",""],
+["26534","Concours salle","2026-11-21","2026-11-22","S","Archers de Saint-Herblain","Saint-Herblain","president.ash@gmail.com",""],
+["27827","Concours salle 2026","2026-11-28","2026-11-29","S","Cie d'Arc de Guérande","Guérande","ciedarcdeguerande@gmail.com",""],
+["26541","Tir en salle 18 m","2026-11-28","2026-11-29","S","Archers d'Orvault","Orvault","archers.orvault@gmail.com","Reportée"],
+["26555","Concours salle 2026","2026-12-05","2026-12-06","S","Cie d'Arc de Guérande","Guérande","ciedarcdeguerande@gmail.com","Reportée"],
+["26557","Salle","2026-12-05","2026-12-06","S","Archers Nantais","Nantes","secretariat.archersnantais@gmail.com",""],
+["25918","Journée de l'archère","2026-12-12","2026-12-12","L","Cie Archers de Vertou","Vertou","bureau@vertouarc.fr",""],
+["27888","Noël hiver 2026","2026-12-13","2026-12-13","S","Cie Archers Bouguenais","Bouguenais","cabbouguenais@gmail.com",""],
+["26568","Sélectif salle 2027","2026-12-19","2026-12-20","S","Les Archers Montoirins","Montoir-de-Bretagne","lesarchersmontoirins@gmail.com",""],
+["26576","Noël hiver 2026","2026-12-20","2026-12-20","S","Cie Archers Bouguenais","Bouguenais","cabbouguenais@gmail.com","Reportée"],
+["26588","Concours salle Carquefou","2027-01-09","2027-01-10","S","Archers de l'Erdre","Carquefou","ioan.legue@gmail.com",""],
+["26590","2 x 18 m sélectif championnat de France","2027-01-09","2027-01-10","S","La Flèche Ragonnaise","Maisdon-sur-Sèvre","michon.nathalie@orange.fr",""],
+["26596","Concours 18 m Piriac","2027-01-09","2027-01-10","S","Les Archers Piriacais","Piriac-sur-Mer","les.archers.piriacais@gmail.com",""],
+["25539","Loisir Piriac","2027-01-09","2027-01-09","L","Les Archers Piriacais","Piriac-sur-Mer","les.archers.piriacais@gmail.com",""],
+["26587","2 x 18 m valide + para","2027-01-09","2027-01-09","S","Archers de la Mée","Châteaubriant","p.comcom4@orange.fr",""],
+["26599","World Target 2027","2027-01-10","2027-01-10","S","Archers de la Mée","Châteaubriant","p.comcom4@orange.fr",""],
+["27244","Championnat départemental jeunes","2027-01-17","2027-01-17","S","B.G.A.C.","Basse-Goulaine","arnaud.julien44@outlook.fr",""],
+["27248","Championnat départemental adultes","2027-01-23","2027-01-24","S","Archers Nantais","Nantes","secretariat.archersnantais@gmail.com",""],
+["26616","Coupe régionale hiver","2027-02-13","2027-02-14","S","A.S.C.E. Tir à l'arc","La Baule-Escoublac","secretariat.ascetiralarc@gmail.com",""],
+["25662","24 h de Donges (équipes)","2027-02-20","2027-02-21","L","Cie Les Flèches Dongeoises","Donges","launaythierry1961@gmail.com",""],
+["26452","Tournoi poussin","2027-03-13","2027-03-13","L","Étoile Sportive Couëronnaise","Couëron","alexis@acytem.fr",""],
+["27159","Trophée départemental des mixtes (équipes)","2027-03-20","2027-03-20","L","A.S.C.E. Tir à l'arc","La Baule-Escoublac","secretariat.ascetiralarc@gmail.com",""],
+["27156","Trophées des mixtes (équipes)","2027-03-20","2027-03-20","L","A.S.C.E. Tir à l'arc","La Baule-Escoublac","secretariat.ascetiralarc@gmail.com",""],
+["27880","Tir en campagne","2027-03-21","2027-03-21","C","Cie Archers de Vertou","Vertou","bureau@vertouarc.fr",""]
+];
+
+const $ = s => document.querySelector(s);
+const today = new Date().toISOString().slice(0,10);
+const cart = new Set();
+const fmt = (a,b) => { const f = d => new Date(d+"T12:00").toLocaleDateString("fr-FR",{day:"numeric",month:"short"}); return a==b ? f(a) : f(a)+" au "+f(b); };
+const parse = r => ({id:r[0],t:r[1],a:r[2],b:r[3],d:r[4],c:r[5],v:r[6],m:r[7],s:r[8]||"",ll:(r[9]&&r[10])?[+r[9],+r[10]]:V[r[6]],p:r[11]=="P",mz:r[12]||""});
+const PARA = new Set(["26484","27823","26507","26510","26524","26534","27827","26555","26557","26588","26590","26596","26587","27248","26576"]);
+let ev = E.map(r => parse([...r,"","",PARA.has(r[0])?"P":""]));
+
+const map = L.map("map").setView([47.3,-1.8],9);
+L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:18,attribution:"© OpenStreetMap"}).addTo(map);
+const layer = L.layerGroup().addTo(map);
+
+$("#f").innerHTML = '<option value="">Toutes les disciplines</option>' + Object.entries(D).map(([k,v]) => `<option value="${k}">${v}</option>`).join("") + '<option value="P">Para-tir</option>';
+
+const DELAI = 15; // jours avant le concours : fin des inscriptions par le club
+const limite = e => { const d = new Date(e.a+"T12:00"); d.setDate(d.getDate()-DELAI); return d.toISOString().slice(0,10); };
+const reg = e => limite(e) >= today
+  ? `<div class="lk">Inscription par le club jusqu'au ${new Date(limite(e)+"T12:00").toLocaleDateString("fr-FR",{day:"numeric",month:"short"})}</div><button data-id="${e.id}">${cart.has(e.id)?"Retirer":"S'inscrire"}</button>`
+  : `<div class="late">Date limite passée : l'inscription par le club n'est plus possible. Une inscription directe auprès de l'organisateur reste probablement possible, à faire vous-même.</div>`;
+const card = e => `<article class="card" style="--c:${col[e.d]}"><b>${e.t}</b> ${e.p?`<mark class="p">Para-tir</mark> `:""}${e.s?`<mark>${e.s}</mark>`:""}<div>${fmt(e.a,e.b)}, ${e.v}</div><div>${D[e.d]}, ${e.c}</div><div class="lk">${e.mz?`<a href="${e.mz}" target="_blank" rel="noopener">Mandat (PDF)</a> `:""}<a href="https://www.ffta.fr/epreuve/${e.id}" target="_blank" rel="noopener">Détail FFTA</a></div>${reg(e)}</article>`;
+
+function render(){
+  const f = $("#f").value;
+  const shown = ev.filter(e => e.b>=today && e.ll && (!f||(f=="P"?e.p:e.d==f))).sort((x,y)=>x.a.localeCompare(y.a));
+  layer.clearLayers();
+  const g = {};
+  shown.forEach(e => (g[e.v] = g[e.v]||[]).push(e));
+  for (const v in g){
+    const l = g[v], ds = [...new Set(l.map(e=>e.d))];
+    L.circleMarker(l[0].ll,{radius:9,weight:2,color:"#fff",fillColor:ds.length>1?"#444":col[ds[0]],fillOpacity:.95})
+      .addTo(layer).bindPopup(`<b>${v}</b>`+l.map(card).join(""),{maxHeight:260});
+  }
+  $("#list").innerHTML = shown.map(card).join("") || "<p>Aucun concours à venir pour ce choix.</p>";
+  $("#cart").textContent = `Mes inscriptions (${cart.size})`;
+  panel();
+}
+
+function panel(){
+  const n = $("#nom").value, li = $("#lic").value;
+  $("#sel").innerHTML = ev.filter(e=>cart.has(e.id)).map(e => {
+    const body = `Bonjour,\n\nJe souhaite m'inscrire au concours « ${e.t} » (${fmt(e.a,e.b)}, ${e.v}).\n\nNom : ${n}\nNuméro de licence : ${li}\n\nCordialement`;
+    const link = e.m ? `<a href="mailto:${e.m}?subject=${encodeURIComponent("Inscription : "+e.t)}&body=${encodeURIComponent(body)}">Écrire au club</a>` : "pas d'adresse connue";
+    return `<li><b>${e.t}</b>, ${e.c}. ${link}</li>`;
+  }).join("") || "<li>Aucun concours choisi.</li>";
+}
+
+document.addEventListener("click", ev2 => {
+  const id = ev2.target.dataset && ev2.target.dataset.id;
+  if (id){ cart.has(id) ? cart.delete(id) : cart.add(id); render(); }
+});
+$("#f").onchange = render;
+$("#cart").onclick = () => $("#panel").hidden = false;
+$("#close").onclick = () => $("#panel").hidden = true;
+$("#nom").oninput = $("#lic").oninput = panel;
+
+fetch("events.json?" + Date.now()).then(r=>r.json()).then(j => {
+  if (Array.isArray(j) && j.length){ ev = j.map(parse); render(); }
+}).catch(()=>{});
+
+render();
+</script>
+</body>
+</html>
