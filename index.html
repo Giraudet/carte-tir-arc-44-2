@@ -176,6 +176,7 @@ function inscrits(e){
   };
 }
 
+const dateAff = x => { const e = ev.find(z => z.id === x.concours_id); return e ? fmt(e.a, e.b) : String(x.date).slice(0, 10); };
 const peutRetirer = x => ["Reçue","En attente de paiement"].includes(x.statut) && (e => !e || limite(e) >= today)(ev.find(z => z.id === x.concours_id));
 async function desinscrire(id, dep){
   if (!confirm("Retirer cette inscription ?")) return;
@@ -194,7 +195,7 @@ function suivi(){
     try {
       const r = await get({action:"mine", code:$("#code").value.trim(), licence:$("#lic").value.trim()});
       $("#res").innerHTML = !Array.isArray(r) ? esc(r.erreur || "Accès refusé.")
-        : r.length ? "<ul>" + r.map(x => `<li><b>${esc(x.concours)}</b>, ${esc(x.date)}${x.depart ? ", départ " + esc(x.depart) : ""}<br><mark class="st ${x.statut==="Validée"?"ok":x.statut==="Plus de place"?"ko":""}">${esc(x.statut)}</mark>${peutRetirer(x) ? ` <button type="button" data-act="annuler" data-id="${esc(x.concours_id)}" data-dep="${esc(x.depart)}">Retirer</button>` : ""}</li>`).join("") + "</ul>"
+        : r.length ? "<ul>" + r.map(x => `<li><b>${esc(x.concours)}</b>, ${esc(dateAff(x))}${x.depart ? ", départ " + esc(x.depart) : ""}<br><mark class="st ${x.statut==="Validée"?"ok":x.statut==="Plus de place"?"ko":""}">${esc(x.statut)}</mark>${peutRetirer(x) ? ` <button type="button" data-act="annuler" data-id="${esc(x.concours_id)}" data-dep="${esc(x.depart)}">Retirer</button>` : ""}</li>`).join("") + "</ul>"
         : "<p>Aucune inscription trouvée pour cette licence.</p>";
     } catch (x) { $("#res").textContent = "Connexion impossible, réessayez."; }
   };
