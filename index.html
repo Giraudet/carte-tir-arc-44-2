@@ -147,7 +147,7 @@ function inscrire(e){
     + champ("code","Code du club",stock("code"),"password") + champ("nom","Nom",stock("nom")) + champ("prenom","Prénom",stock("prenom"))
     + champ("lic","Numéro de licence",stock("lic"))
     + `<label>Arc<select id="arc">${ARCS.map(a => `<option>${a}</option>`).join("")}</select></label>`
-    + champ("cat","Catégorie (ex : Senior 1 homme)",stock("cat")) + champ("dep","N° de départ souhaité (ex : départ 1)")
+    + champ("cat","Catégorie (ex : Senior 1 homme)",stock("cat")) + champ("dep","Départ(s) souhaité(s), séparés par une virgule (ex : 1, 2)")
     + champ("contact","Téléphone ou e-mail",stock("contact"))
     + `<button type="button" id="envoyer">Envoyer mon inscription</button><p id="msg"></p>`);
   $("#envoyer").onclick = async () => {
@@ -157,7 +157,7 @@ function inscrire(e){
     try {
       const r = await post({code:v("code"), concours_id:e.id, concours:e.t, date:fmt(e.a,e.b), nom:v("nom"), prenom:v("prenom"),
         licence:v("lic"), arc:$("#arc").value, categorie:v("cat"), depart:v("dep"), contact:v("contact")});
-      if (r.ok){ nb[e.id] = (nb[e.id]||0) + 1; render(); $("#msg").textContent = "Inscription enregistrée. Suivez son état avec « Mon suivi »."; }
+      if (r.ok){ compteurs(); $("#msg").textContent = (r.ajoutes > 1 ? r.ajoutes + " inscriptions enregistrées" : "Inscription enregistrée") + ". Suivez leur état avec « Mon suivi »."; }
       else $("#msg").textContent = r.erreur || "L'inscription a échoué.";
     } catch (x) { $("#msg").textContent = "Connexion impossible, réessayez."; }
   };
@@ -171,7 +171,7 @@ function inscrits(e){
     try {
       const r = await get({action:"list", concours:e.id, code:$("#code").value.trim()});
       $("#res").innerHTML = !Array.isArray(r) ? esc(r.erreur || "Accès refusé.")
-        : r.length ? "<ul>" + r.map(x => `<li>${esc(x.prenom)} ${esc(x.nom)}, ${esc(x.arc)}</li>`).join("") + "</ul>" : "<p>Aucun inscrit pour le moment.</p>";
+        : r.length ? "<ul>" + r.map(x => `<li>${esc(x.prenom)} ${esc(x.nom)}, ${esc(x.arc)}${x.departs && x.departs.length ? ", départ " + x.departs.map(esc).join(", ") : ""}</li>`).join("") + "</ul>" : "<p>Aucun inscrit pour le moment.</p>";
     } catch (x) { $("#res").textContent = "Connexion impossible, réessayez."; }
   };
 }
@@ -204,7 +204,8 @@ fetch("events.json?" + Date.now()).then(r=>r.json()).then(j => {
 }).catch(()=>{});
 
 $("#cart").hidden = !INSCRIPTIONS;
-if (INSCRIPTIONS) fetch(API + "?action=counts").then(r => r.json()).then(c => { Object.assign(nb, c); render(); }).catch(() => {});
+const compteurs = () => fetch(API + "?action=counts").then(r => r.json()).then(c => { Object.assign(nb, c); render(); }).catch(() => {});
+if (INSCRIPTIONS) compteurs();
 render();
 </script>
 </body>
