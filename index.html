@@ -105,7 +105,7 @@ const layer = L.layerGroup().addTo(map);
 
 $("#f").innerHTML = '<option value="">Toutes les disciplines</option>' + Object.entries(D).map(([k,v]) => `<option value="${k}">${v}</option>`).join("") + '<option value="P">Para-tir</option>';
 
-const API = "https://script.google.com/macros/s/AKfycbyCEfuy-oAqplzJMgBbuWld7ZBn9W2nkGpzoQN9PcoSt9ZS3xw98BRBHFGFjbqdGmaK/exec";
+const API = "https://script.google.com/macros/s/AKfycbw8TUF_TjOuBRmEWUkM4YWXvMuGA9VEWJlRsS0iKRF9ruoHKMnw733wsfwgZcROl2cd/exec";
 const INSCRIPTIONS = true;
 const DELAI = 15; // jours avant le concours : fin des inscriptions par le club
 const limite = e => { const d = new Date(e.a+"T12:00"); d.setDate(d.getDate()-DELAI); return d.toISOString().slice(0,10); };
@@ -147,6 +147,7 @@ function inscrire(e){
     + champ("code","Code du club",stock("code"),"password") + champ("nom","Nom",stock("nom")) + champ("prenom","Prénom",stock("prenom"))
     + champ("lic","Numéro de licence",stock("lic"))
     + `<label>Arc<select id="arc">${ARCS.map(a => `<option>${a}</option>`).join("")}</select></label>`
+    + `<label style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="tri" style="width:auto;margin:0"> Trispot</label>`
     + champ("cat","Catégorie (ex : Senior 1 homme)",stock("cat")) + champ("dep","Départ(s) souhaité(s), séparés par une virgule (ex : 1, 2)")
     + champ("contact","Téléphone ou e-mail",stock("contact"))
     + `<button type="button" id="envoyer">Envoyer mon inscription</button><p id="msg"></p>`);
@@ -156,7 +157,7 @@ function inscrire(e){
     $("#msg").textContent = "Envoi en cours…";
     try {
       const r = await post({code:v("code"), concours_id:e.id, concours:e.t, date:fmt(e.a,e.b), nom:v("nom"), prenom:v("prenom"),
-        licence:v("lic"), arc:$("#arc").value, categorie:v("cat"), depart:v("dep"), contact:v("contact")});
+        licence:v("lic"), arc:$("#arc").value, trispot:$("#tri").checked, limite:limite(e), categorie:v("cat"), depart:v("dep"), contact:v("contact")});
       if (r.ok){ compteurs(); $("#msg").textContent = (r.ajoutes > 1 ? r.ajoutes + " inscriptions enregistrées" : "Inscription enregistrée") + ". Suivez leur état avec « Mon suivi »."; }
       else $("#msg").textContent = r.erreur || "L'inscription a échoué.";
     } catch (x) { $("#msg").textContent = "Connexion impossible, réessayez."; }
