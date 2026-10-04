@@ -109,9 +109,10 @@ const layer = L.layerGroup().addTo(map);
 
 $("#f").innerHTML = '<option value="">Toutes les disciplines</option>' + Object.entries(D).map(([k,v]) => `<option value="${k}">${v}</option>`).join("") + '<option value="P">Para-tir</option>';
 
+const INSCRIPTIONS = false; // passer à true quand le formulaire d'inscription est prêt
 const DELAI = 15; // jours avant le concours : fin des inscriptions par le club
 const limite = e => { const d = new Date(e.a+"T12:00"); d.setDate(d.getDate()-DELAI); return d.toISOString().slice(0,10); };
-const reg = e => limite(e) >= today
+const reg = e => !INSCRIPTIONS ? "" : limite(e) >= today
   ? `<div class="lk">Inscription par le club jusqu'au ${new Date(limite(e)+"T12:00").toLocaleDateString("fr-FR",{day:"numeric",month:"short"})}</div><button data-id="${e.id}">${cart.has(e.id)?"Retirer":"S'inscrire"}</button>`
   : `<div class="late">Date limite passée : l'inscription par le club n'est plus possible. Une inscription directe auprès de l'organisateur reste probablement possible, à faire vous-même.</div>`;
 const card = e => `<article class="card" style="--c:${col[e.d]}"><b>${e.t}</b> ${e.p?`<mark class="p">Para-tir</mark> `:""}${e.s?`<mark>${e.s}</mark>`:""}<div>${fmt(e.a,e.b)}, ${e.v}</div><div>${D[e.d]}, ${e.c}</div><div class="lk">${e.mz?`<a href="${e.mz}" target="_blank" rel="noopener">Mandat (PDF)</a> `:""}<a href="https://www.ffta.fr/epreuve/${e.id}" target="_blank" rel="noopener">Détail FFTA</a></div>${reg(e)}</article>`;
@@ -154,6 +155,7 @@ fetch("events.json?" + Date.now()).then(r=>r.json()).then(j => {
   if (Array.isArray(j) && j.length){ ev = j.map(parse); render(); }
 }).catch(()=>{});
 
+$("#cart").hidden = !INSCRIPTIONS;
 render();
 </script>
 </body>
