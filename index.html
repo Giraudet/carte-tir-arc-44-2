@@ -22,6 +22,7 @@ main{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:
 .card button{margin-top:8px;padding:5px 12px}
 .lk{margin-top:6px;font-size:.85rem}.lk a{color:var(--ink);margin-right:10px}
 .late{margin-top:8px;font-size:.85rem;background:#fff1e0;padding:6px 8px;border-radius:6px}
+mark.m{background:#e6dcf5}
 mark.p{background:#cfe4ff}
 mark{background:#ffe3b3;padding:0 6px;border-radius:4px;font-size:.8rem}
 dialog{border:0;border-radius:12px;padding:16px;width:min(92vw,420px);box-shadow:0 10px 40px #0005}
@@ -39,6 +40,7 @@ mark.st{background:#e8eef3}mark.ok{background:#d4f0dc}mark.ko{background:#fbd5d5
   <h1>Concours de tir à l'arc en France</h1>
   <select id="dep" aria-label="Département"></select>
   <select id="f" aria-label="Discipline"></select>
+  <select id="cib" aria-label="Cibles"><option value="">Toutes les cibles</option><option value="M">Cibles en mousse (selon le mandat)</option></select>
   <button id="cart">Mon suivi</button>
 </header>
 <div id="map"></div>
@@ -99,7 +101,7 @@ const $ = s => document.querySelector(s);
 const today = new Date().toISOString().slice(0,10);
 const cart = new Set();
 const fmt = (a,b) => { const f = d => new Date(d+"T12:00").toLocaleDateString("fr-FR",{day:"numeric",month:"short"}); return a==b ? f(a) : f(a)+" au "+f(b); };
-const parse = r => ({id:r[0],t:r[1],a:r[2],b:r[3],d:r[4],c:r[5],v:r[6],m:r[7],s:r[8]||"",ll:(r[9]&&r[10])?[+r[9],+r[10]]:V[r[6]],p:r[11]=="P",mz:r[12]||"",dep:r[13]||"44"});
+const parse = r => ({id:r[0],t:r[1],a:r[2],b:r[3],d:r[4],c:r[5],v:r[6],m:r[7],s:r[8]||"",ll:(r[9]&&r[10])?[+r[9],+r[10]]:V[r[6]],p:r[11]=="P",mz:r[12]||"",dep:r[13]||"44",ci:r[14]||"",cx:r[15]||""});
 const PARA = new Set(["26484","27823","26507","26510","26524","26534","27827","26555","26557","26588","26590","26596","26587","27248","26576"]);
 let ev = E.map(r => parse([...r,"","",PARA.has(r[0])?"P":"","","44"]));
 
@@ -122,11 +124,11 @@ const reg = e => !INSCRIPTIONS ? "" :
     ? `<div class="lk">Inscription par le club jusqu'au ${jour(limite(e))}</div><button data-act="reg" data-id="${e.id}">S'inscrire</button>`
     : `<div class="late">Date limite passée : l'inscription par le club n'est plus possible. Une inscription directe auprès de l'organisateur reste probablement possible, à faire vous-même.</div>`) +
   `<button data-act="list" data-id="${e.id}">Voir les inscrits</button>`;
-const card = e => `<article class="card" style="--c:${col[e.d]}"><b>${e.t}</b> ${e.p?`<mark class="p">Para-tir</mark> `:""}${e.s?`<mark>${e.s}</mark>`:""}<div>${fmt(e.a,e.b)}, ${e.v}</div><div>${D[e.d]}, ${e.c}</div><div class="lk">${e.mz?`<a href="${e.mz}" target="_blank" rel="noopener">Mandat (PDF)</a> `:""}<a href="https://www.ffta.fr/epreuve/${e.id}" target="_blank" rel="noopener">Détail FFTA</a></div>${reg(e)}</article>`;
+const card = e => `<article class="card" style="--c:${col[e.d]}"><b>${e.t}</b> ${e.p?`<mark class="p">Para-tir</mark> `:""}${e.ci==="Mousse"?`<mark class="m" title="${esc(e.cx)}">Cibles mousse</mark> `:""}${e.s?`<mark>${e.s}</mark>`:""}<div>${fmt(e.a,e.b)}, ${e.v}</div><div>${D[e.d]}, ${e.c}</div><div class="lk">${e.mz?`<a href="${e.mz}" target="_blank" rel="noopener">Mandat (PDF)</a> `:""}<a href="https://www.ffta.fr/epreuve/${e.id}" target="_blank" rel="noopener">Détail FFTA</a></div>${reg(e)}</article>`;
 
 function render(){
-  const f = $("#f").value, dp = $("#dep").value;
-  const shown = ev.filter(e => e.b>=today && e.ll && (!dp||e.dep===dp) && (!f||(f=="P"?e.p:e.d==f))).sort((x,y)=>x.a.localeCompare(y.a));
+  const f = $("#f").value, dp = $("#dep").value, cb = $("#cib").value;
+  const shown = ev.filter(e => e.b>=today && e.ll && (!dp||e.dep===dp) && (!f||(f=="P"?e.p:e.d==f)) && (!cb||e.ci==="Mousse")).sort((x,y)=>x.a.localeCompare(y.a));
   layer.clearLayers();
   const g = {};
   shown.forEach(e => (g[e.v] = g[e.v]||[]).push(e));
@@ -147,27 +149,26 @@ const post = async o => (await fetch(API, {method:"POST", headers:{"Content-Type
 const get = async q => (await fetch(API + "?" + new URLSearchParams(q))).json();
 
 function inscrire(e){
-  ouvrir(`<h3>S'inscrire : ${esc(e.t)}</h3><p>${fmt(e.a,e.b)}, ${esc(e.v)}<br><small>Réservé aux archers du club.</small></p>`
-    + champ("code","Code du club",stock("code"),"password") + champ("nom","Nom",stock("nom")) + champ("prenom","Prénom",stock("prenom"))
-    + champ("lic","Numéro de licence",stock("lic"))
+  ouvrir(`<h3>S'inscrire : ${esc(e.t)}</h3><p>${fmt(e.a,e.b)}, ${esc(e.v)}<br><small>Réservé aux licenciés du club.</small></p>`
+    + champ("lic","Numéro de licence",stock("lic")) + champ("nom","Nom de famille",stock("nom"))
     + `<label>Sexe<select id="sexe"><option value="">Choisir</option><option>Femme</option><option>Homme</option></select></label>`
     + (e.d === "E" ? `<label>Distances<select id="dist"><option value="">Choisir</option><option>Nationales</option><option>Internationales</option></select></label>` : "")
     + `<label>Arc<select id="arc">${ARCS.map(a => `<option>${a}</option>`).join("")}</select></label>`
     + `<label style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="tri" style="width:auto;margin:0"> Trispot</label>`
-    + champ("cat","Catégorie (ex : Senior 1 homme)",stock("cat")) + champ("dep","Départ(s) souhaité(s), obligatoire, séparés par une virgule (ex : 1, 2)")
+    + champ("cat","Catégorie (ex : Senior 1 homme)",stock("cat")) + champ("depart","Départ(s) souhaité(s), obligatoire, séparés par une virgule (ex : 1, 2)")
     + champ("contact","Téléphone ou e-mail",stock("contact"))
     + `<button type="button" id="envoyer">Envoyer mon inscription</button><p id="msg"></p>`);
   $("#envoyer").onclick = async () => {
     const v = id => $("#"+id).value.trim();
-    const manque = [["code","le code du club"],["nom","le nom"],["prenom","le prénom"],["lic","le numéro de licence"],["dep","le ou les départs"]].filter(([k]) => !v(k)).map(x => x[1]);
+    const manque = [["lic","le numéro de licence"],["nom","le nom de famille"],["depart","le ou les départs"]].filter(([k]) => !v(k)).map(x => x[1]);
     if (!$("#sexe").value) manque.push("le sexe");
     if (e.d === "E" && !$("#dist").value) manque.push("les distances");
     if (manque.length) { $("#msg").textContent = "Merci d'indiquer : " + manque.join(", ") + "."; return; }
-    ["code","nom","prenom","lic","cat","contact"].forEach(k => stock(k, v(k)));
+    ["nom","lic","cat","contact"].forEach(k => stock(k, v(k)));
     $("#msg").textContent = "Envoi en cours…";
     try {
-      const r = await post({code:v("code"), concours_id:e.id, concours:e.t, date:fmt(e.a,e.b), nom:v("nom"), prenom:v("prenom"),
-        licence:v("lic"), arc:$("#arc").value, sexe:$("#sexe").value, distances:e.d === "E" ? $("#dist").value : "", trispot:$("#tri").checked, limite:limite(e), categorie:v("cat"), depart:v("dep"), contact:v("contact")});
+      const r = await post({concours_id:e.id, concours:e.t, date:fmt(e.a,e.b), nom:v("nom"),
+        licence:v("lic"), arc:$("#arc").value, sexe:$("#sexe").value, distances:e.d === "E" ? $("#dist").value : "", trispot:$("#tri").checked, limite:limite(e), categorie:v("cat"), depart:v("depart"), contact:v("contact")});
       if (r.ok){ compteurs(); $("#msg").textContent = (r.ajoutes > 1 ? r.ajoutes + " inscriptions enregistrées" : "Inscription enregistrée") + ". À régler avant le " + jour(limite(e)) + " auprès du club, en indiquant la référence " + r.ref + ". Retrouvez-la dans « Mon suivi »."; }
       else $("#msg").textContent = r.erreur || "L'inscription a échoué.";
     } catch (x) { $("#msg").textContent = "Connexion impossible, réessayez."; }
@@ -175,12 +176,12 @@ function inscrire(e){
 }
 
 function inscrits(e){
-  ouvrir(`<h3>Inscrits : ${esc(e.t)}</h3>` + champ("code","Code du club",stock("code"),"password")
+  ouvrir(`<h3>Inscrits : ${esc(e.t)}</h3>` + champ("lic","Numéro de licence",stock("lic")) + champ("nom","Nom de famille",stock("nom"))
     + `<button type="button" id="go">Afficher</button><div id="res"></div>`);
   $("#go").onclick = async () => {
-    stock("code", $("#code").value.trim());
+    stock("lic", $("#lic").value.trim()); stock("nom", $("#nom").value.trim());
     try {
-      const r = await get({action:"list", concours:e.id, code:$("#code").value.trim()});
+      const r = await get({action:"list", concours:e.id, licence:$("#lic").value.trim(), nom:$("#nom").value.trim()});
       $("#res").innerHTML = !Array.isArray(r) ? esc(r.erreur || "Accès refusé.")
         : r.length ? "<ul>" + r.map(x => `<li>${esc(x.prenom)} ${esc(x.nom)}, ${esc(x.arc)}${x.departs && x.departs.length ? ", départ " + x.departs.map(esc).join(", ") : ""}</li>`).join("") + "</ul>" : "<p>Aucun inscrit pour le moment.</p>";
     } catch (x) { $("#res").textContent = "Connexion impossible, réessayez."; }
@@ -194,19 +195,19 @@ const peutRetirer = x => ["Reçue","En attente de paiement"].includes(x.statut) 
 async function desinscrire(id, dep){
   if (!confirm("Retirer cette inscription ?")) return;
   try {
-    const r = await post({action:"annuler", code:stock("code"), licence:stock("lic"), concours_id:id, depart:dep});
+    const r = await post({action:"annuler", nom:stock("nom"), licence:stock("lic"), concours_id:id, depart:dep});
     if (r.ok){ compteurs(); $("#go").click(); } else alert(r.erreur || "Échec de la désinscription.");
   } catch (x) { alert("Connexion impossible, réessayez."); }
 }
 
 function suivi(){
-  ouvrir(`<h3>Mon suivi</h3>` + champ("code","Code du club",stock("code"),"password") + champ("lic","Numéro de licence",stock("lic"))
+  ouvrir(`<h3>Mon suivi</h3>` + champ("lic","Numéro de licence",stock("lic")) + champ("nom","Nom de famille",stock("nom"))
     + `<button type="button" id="go">Voir mes inscriptions</button><div id="res"></div>`
     + `<p style="font-size:.85rem">Pour ajouter un départ, utilisez « S'inscrire » sur le concours. Pour en changer, retirez l'ancien puis ajoutez le nouveau. Une inscription déjà transmise se modifie auprès du club.</p>`);
   $("#go").onclick = async () => {
-    stock("code", $("#code").value.trim()); stock("lic", $("#lic").value.trim());
+    stock("nom", $("#nom").value.trim()); stock("lic", $("#lic").value.trim());
     try {
-      const r = await get({action:"mine", code:$("#code").value.trim(), licence:$("#lic").value.trim()});
+      const r = await get({action:"mine", licence:$("#lic").value.trim(), nom:$("#nom").value.trim()});
       $("#res").innerHTML = !Array.isArray(r) ? esc(r.erreur || "Accès refusé.")
         : r.length ? "<ul>" + r.map(x => `<li><b>${esc(x.concours)}</b>, ${esc(dateAff(x))}${x.depart ? ", départ " + esc(x.depart) : ""}<br><mark class="st ${x.statut==="Validée"?"ok":x.statut==="Plus de place"?"ko":""}">${esc(x.statut)}</mark>${payeAff(x)}${peutRetirer(x) ? ` <button type="button" data-act="annuler" data-id="${esc(x.concours_id)}" data-dep="${esc(x.depart)}">Retirer</button>` : ""}</li>`).join("") + "</ul>"
         : "<p>Aucune inscription trouvée pour cette licence.</p>";
@@ -234,6 +235,7 @@ function cadrer(){
 }
 $("#dep").onchange = () => { stock("dep", $("#dep").value || "all"); render(); cadrer(); };
 $("#f").onchange = render;
+$("#cib").onchange = render;
 $("#cart").onclick = suivi;
 
 Promise.all([
