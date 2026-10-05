@@ -148,9 +148,14 @@ const ARCS = ["Classique","Poulies","Arc nu","Arc de chasse","Longbow"];
 const post = async o => (await fetch(API, {method:"POST", headers:{"Content-Type":"text/plain;charset=utf-8"}, body:JSON.stringify(o)})).json();
 const get = async q => (await fetch(API + "?" + new URLSearchParams(q))).json();
 
+let MODE = "code";   // « code » (mot de passe du club) ou « licence » (liste des licenciés) : annoncé par le script
+const val = id => { const x = $("#"+id); return x ? x.value.trim() : ""; };
+const garde = ks => ks.forEach(k => { const x = val(k); if (x) stock(k, x); });
+
 function inscrire(e){
-  ouvrir(`<h3>S'inscrire : ${esc(e.t)}</h3><p>${fmt(e.a,e.b)}, ${esc(e.v)}<br><small>Réservé aux licenciés du club.</small></p>`
+  ouvrir(`<h3>S'inscrire : ${esc(e.t)}</h3><p>${fmt(e.a,e.b)}, ${esc(e.v)}<br><small>Réservé aux ${MODE === "code" ? "archers" : "licenciés"} du club.</small></p>`
     + champ("lic","Numéro de licence",stock("lic")) + champ("nom","Nom de famille",stock("nom"))
+    + (MODE === "code" ? champ("prenom","Prénom",stock("prenom")) + champ("code","Code du club",stock("code"),"password") : "")
     + `<label>Sexe<select id="sexe"><option value="">Choisir</option><option>Femme</option><option>Homme</option></select></label>`
     + (e.d === "E" ? `<label>Distances<select id="dist"><option value="">Choisir</option><option>Nationales</option><option>Internationales</option></select></label>` : "")
     + `<label>Arc<select id="arc">${ARCS.map(a => `<option>${a}</option>`).join("")}</select></label>`
@@ -159,15 +164,17 @@ function inscrire(e){
     + champ("contact","Téléphone ou e-mail",stock("contact"))
     + `<button type="button" id="envoyer">Envoyer mon inscription</button><p id="msg"></p>`);
   $("#envoyer").onclick = async () => {
-    const v = id => $("#"+id).value.trim();
-    const manque = [["lic","le numéro de licence"],["nom","le nom de famille"],["depart","le ou les départs"]].filter(([k]) => !v(k)).map(x => x[1]);
+    const v = val;
+    const manque = [["lic","le numéro de licence"],["nom","le nom de famille"]]
+      .concat(MODE === "code" ? [["prenom","le prénom"],["code","le code du club"]] : [], [["depart","le ou les départs"]])
+      .filter(([k]) => !v(k)).map(x => x[1]);
     if (!$("#sexe").value) manque.push("le sexe");
     if (e.d === "E" && !$("#dist").value) manque.push("les distances");
     if (manque.length) { $("#msg").textContent = "Merci d'indiquer : " + manque.join(", ") + "."; return; }
-    ["nom","lic","cat","contact"].forEach(k => stock(k, v(k)));
+    garde(["nom","prenom","code","lic","cat","contact"]);
     $("#msg").textContent = "Envoi en cours…";
     try {
-      const r = await post({concours_id:e.id, concours:e.t, date:fmt(e.a,e.b), nom:v("nom"),
+      const r = await post({concours_id:e.id, concours:e.t, date:fmt(e.a,e.b), nom:v("nom"), prenom:v("prenom"), code:v("code"),
         licence:v("lic"), arc:$("#arc").value, sexe:$("#sexe").value, distances:e.d === "E" ? $("#dist").value : "", trispot:$("#tri").checked, limite:limite(e), categorie:v("cat"), depart:v("depart"), contact:v("contact")});
       if (r.ok){ compteurs(); $("#msg").textContent = (r.ajoutes > 1 ? r.ajoutes + " inscriptions enregistrées" : "Inscription enregistrée") + ". À régler avant le " + jour(limite(e)) + " auprès du club, en indiquant la référence " + r.ref + ". Retrouvez-la dans « Mon suivi »."; }
       else $("#msg").textContent = r.erreur || "L'inscription a échoué.";
@@ -176,12 +183,12 @@ function inscrire(e){
 }
 
 function inscrits(e){
-  ouvrir(`<h3>Inscrits : ${esc(e.t)}</h3>` + champ("lic","Numéro de licence",stock("lic")) + champ("nom","Nom de famille",stock("nom"))
+  ouvrir(`<h3>Inscrits : ${esc(e.t)}</h3>` + (MODE === "code" ? champ("code","Code du club",stock("code"),"password") : champ("lic","Numéro de licence",stock("lic")) + champ("nom","Nom de famille",stock("nom")))
     + `<button type="button" id="go">Afficher</button><div id="res"></div>`);
   $("#go").onclick = async () => {
-    stock("lic", $("#lic").value.trim()); stock("nom", $("#nom").value.trim());
+    garde(["code","lic","nom"]);
     try {
-      const r = await get({action:"list", concours:e.id, licence:$("#lic").value.trim(), nom:$("#nom").value.trim()});
+      const r = await get({action:"list", concours:e.id, licence:val("lic"), nom:val("nom"), code:val("code")});
       $("#res").innerHTML = !Array.isArray(r) ? esc(r.erreur || "Accès refusé.")
         : r.length ? "<ul>" + r.map(x => `<li>${esc(x.prenom)} ${esc(x.nom)}, ${esc(x.arc)}${x.departs && x.departs.length ? ", départ " + x.departs.map(esc).join(", ") : ""}</li>`).join("") + "</ul>" : "<p>Aucun inscrit pour le moment.</p>";
     } catch (x) { $("#res").textContent = "Connexion impossible, réessayez."; }
@@ -195,19 +202,19 @@ const peutRetirer = x => ["Reçue","En attente de paiement"].includes(x.statut) 
 async function desinscrire(id, dep){
   if (!confirm("Retirer cette inscription ?")) return;
   try {
-    const r = await post({action:"annuler", nom:stock("nom"), licence:stock("lic"), concours_id:id, depart:dep});
+    const r = await post({action:"annuler", code:stock("code"), nom:stock("nom"), licence:stock("lic"), concours_id:id, depart:dep});
     if (r.ok){ compteurs(); $("#go").click(); } else alert(r.erreur || "Échec de la désinscription.");
   } catch (x) { alert("Connexion impossible, réessayez."); }
 }
 
 function suivi(){
-  ouvrir(`<h3>Mon suivi</h3>` + champ("lic","Numéro de licence",stock("lic")) + champ("nom","Nom de famille",stock("nom"))
+  ouvrir(`<h3>Mon suivi</h3>` + champ("lic","Numéro de licence",stock("lic")) + (MODE === "code" ? champ("code","Code du club",stock("code"),"password") : champ("nom","Nom de famille",stock("nom")))
     + `<button type="button" id="go">Voir mes inscriptions</button><div id="res"></div>`
     + `<p style="font-size:.85rem">Pour ajouter un départ, utilisez « S'inscrire » sur le concours. Pour en changer, retirez l'ancien puis ajoutez le nouveau. Une inscription déjà transmise se modifie auprès du club.</p>`);
   $("#go").onclick = async () => {
-    stock("nom", $("#nom").value.trim()); stock("lic", $("#lic").value.trim());
+    garde(["code","lic","nom"]);
     try {
-      const r = await get({action:"mine", licence:$("#lic").value.trim(), nom:$("#nom").value.trim()});
+      const r = await get({action:"mine", licence:val("lic"), nom:val("nom"), code:val("code")});
       $("#res").innerHTML = !Array.isArray(r) ? esc(r.erreur || "Accès refusé.")
         : r.length ? "<ul>" + r.map(x => `<li><b>${esc(x.concours)}</b>, ${esc(dateAff(x))}${x.depart ? ", départ " + esc(x.depart) : ""}<br><mark class="st ${x.statut==="Validée"?"ok":x.statut==="Plus de place"?"ko":""}">${esc(x.statut)}</mark>${payeAff(x)}${peutRetirer(x) ? ` <button type="button" data-act="annuler" data-id="${esc(x.concours_id)}" data-dep="${esc(x.depart)}">Retirer</button>` : ""}</li>`).join("") + "</ul>"
         : "<p>Aucune inscription trouvée pour cette licence.</p>";
@@ -249,6 +256,7 @@ Promise.all([
 $("#cart").hidden = !INSCRIPTIONS;
 const compteurs = () => fetch(API + "?action=counts").then(r => r.json()).then(c => { Object.assign(nb, c); render(); }).catch(() => {});
 if (INSCRIPTIONS) compteurs();
+fetch(API + "?action=config").then(r => r.json()).then(c => { if (c.mode === "licence") MODE = "licence"; }).catch(() => {});
 render();
 </script>
 </body>
