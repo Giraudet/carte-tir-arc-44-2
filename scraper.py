@@ -1,4 +1,4 @@
-"""Lit le calendrier FFTA du département 44 et écrit events.json (une ligne par concours)."""
+"""Lit le calendrier FFTA de tous les départements et écrit events.json (une ligne par concours)."""
 import datetime as dt
 import json
 import re
@@ -18,14 +18,22 @@ OUT_FILE = Path("events.json")
 MOIS = {m: i + 1 for i, m in enumerate(
     "janvier février mars avril mai juin juillet août septembre octobre novembre décembre".split())}
 SMALL = {"de", "du", "des", "la", "le", "les", "et", "à", "sur", "en", "aux", "au"}
-# S = salle, L = loisirs, C = extérieur et parcours. Le para-tir est fusionné avec le concours (colonne "P").
-DISC = {
-    "Tir à 18m": "S",
-    "Loisirs confirmé": "L", "Loisirs débutant": "L", "Loisirs débutant et confirmé": "L",
-    "Loisirs": "L", "Jeunes": "L", "Tournoi poussin": "L", "Rencontres clubs loisirs": "L", "Divers": "L",
-    "Tir à l'arc extérieur": "C", "Tir en campagne": "C", "Tir 3d": "C", "Tir beursault": "C",
-    "Tir nature": "C", "Run archery": "C",
-}
+# Codes : S salle, E extérieur, C campagne, T 3D, N nature, B beursault, L loisirs, A autres.
+# Le para-tir est fusionné avec le concours correspondant (colonne "P").
+
+
+def is_para(l):
+    return (l or "").lower().startswith("para")
+
+
+def code_disc(l):
+    s = (l or "").lower()
+    for mot, code in (("3d", "T"), ("campagne", "C"), ("nature", "N"), ("beursault", "B"), ("run archery", "A"),
+                      ("18", "S"), ("salle", "S"), ("ext", "E"), ("fita", "E"), ("loisir", "L"), ("jeune", "L"),
+                      ("poussin", "L"), ("divers", "L"), ("rencontre", "L"), ("débutant", "L")):
+        if mot in s:
+            return code
+    return "A"
 
 
 def decode(h):
@@ -51,12 +59,33 @@ def tidy(s):
     return " ".join(out)
 
 
-def fetch(n, start, end):
-    p = {"dep[]": "45", "discipline": "All", "end": end, "inter": "All",
-         "sort_by": "start", "sort_order": "ASC", "start": start, "univers": "All", "page": n}
-    r = requests.get(BASE, params=p, headers=HEADERS, timeout=30)
-    r.raise_for_status()
-    return r.text
+def fetch(n, start, end, dep=None):
+    p = {"discipline": "All", "end": end, "inter": "All", "sort_by": "start", "sort_order": "ASC",
+         "start": start, "univers": "All", "page": n}
+    if dep:
+        p["dep[]"] = dep
+    for essai in (1, 2):
+        try:
+            r = requests.get(BASE, params=p, headers=HEADERS, timeout=30)
+            r.raise_for_status()
+            return r.text
+        except Exception:
+            if essai == 2:
+                raise
+            time.sleep(5)
+
+
+def departements(html):
+    """Lit la liste déroulante des départements : {code: {"val": valeur du site, "nom": nom}}."""
+    soup = BeautifulSoup(html, "html.parser")
+    sel = soup.find("select", attrs={"name": re.compile("dep")})
+    out = {}
+    for o in (sel.find_all("option") if sel else []):
+        val, txt = (o.get("value") or "").strip(), o.get_text(" ", strip=True)
+        m = re.match(r"^\s*(\d{2,3}|2[AB])\b\s*[-–:.]?\s*(.*)$", txt)
+        if val and val.lower() != "all" and m:
+            out[m[1]] = {"val": val, "nom": m[2].strip()}
+    return out
 
 
 def lines(html):
@@ -115,32 +144,34 @@ def parse_lines(ls):
             cur["m"] = cur["m"] or l[4:]
         elif l.startswith("@@D|"):
             cur["mandat"] = l[4:]
-        elif l in DISC or l.startswith("Para"):
-            cur["d"] = l
         elif l in ("Individuel", "Uniquement équipe", "Mail", "Site", "Mandat", "Détail"):
             continue
+        elif cur["d"] is None:
+            cur["d"] = l          # la première ligne après le titre est la discipline
         elif not cur["club"] and re.search(r"[A-ZÀ-Ý]{3}", l):
             cur["club"] = l
     return out
 
 
-def geocode(ville, cache):
-    if ville in cache:
-        return cache[ville]
-    q = re.sub(r"\bSTE\b", "SAINTE", re.sub(r"\bST\b", "SAINT", ville.upper()))
-    try:
-        r = requests.get("https://api-adresse.data.gouv.fr/search/",
-                         params={"q": q, "type": "municipality", "limit": 10},
-                         headers=HEADERS, timeout=20).json()
-        for f in r.get("features", []):
-            if f["properties"].get("context", "").startswith("44"):
-                lon, lat = f["geometry"]["coordinates"]
-                cache[ville] = [round(lat, 4), round(lon, 4)]
-                time.sleep(0.2)
-                return cache[ville]
-    except Exception as ex:
-        print("Géocodage impossible pour", ville, ex)
-    print("Commune introuvable :", ville)
+def geocode(ville, cache, code):
+    cle = "%s|%s" % (ville, code)
+    if cle in cache:
+        return cache[cle]
+    q0 = re.sub(r"\bSTE\b", "SAINTE", re.sub(r"\bST\b", "SAINT", ville.upper()))
+    for q in dict.fromkeys([q0, re.sub(r"\s+(\d+|CEDEX).*$", "", q0)]):
+        try:
+            r = requests.get("https://api-adresse.data.gouv.fr/search/",
+                             params={"q": q, "type": "municipality", "limit": 15},
+                             headers=HEADERS, timeout=20).json()
+            for f in r.get("features", []):
+                if f["properties"].get("context", "").split(",")[0].strip() == code:
+                    lon, lat = f["geometry"]["coordinates"]
+                    cache[cle] = [round(lat, 4), round(lon, 4)]
+                    time.sleep(0.15)
+                    return cache[cle]
+        except Exception as ex:
+            print("Géocodage impossible pour", ville, ex)
+    print("Commune introuvable :", ville, code)
     return None
 
 
@@ -153,8 +184,8 @@ def split(e):
     return t, ville or cville, club
 
 
-def build(raw, cache):
-    """Une ligne par concours ; le para-tir est fusionné (colonne 12 = "P", colonne 13 = lien du mandat) avec le concours correspondant."""
+def build(raw, cache, code):
+    """Une ligne par concours ; le para-tir est fusionné (colonne 12 = "P", colonne 13 = lien du mandat, colonne 14 = code du département) avec le concours correspondant."""
     rows, mails = {}, {}
     ok = [e for e in raw if e["s"] != "Annulée" and e["date"]]
     for e in ok:
@@ -162,16 +193,16 @@ def build(raw, cache):
             mails[split(e)[2].lower()] = e["m"]
     for e in sorted(ok, key=lambda e: not e["m"]):  # ceux qui ont une adresse mail d'abord
         t, ville, club = split(e)
-        if e["d"] not in DISC or not ville:
+        if not e["d"] or is_para(e["d"]) or not ville:
             continue
         key = (t.lower(), str(e["date"][0]), ville.lower())
         if key in rows:
             continue
-        ll = geocode(ville, cache) or ["", ""]
-        rows[key] = [e["id"], tidy(t), e["date"][0].isoformat(), e["date"][1].isoformat(), DISC[e["d"]],
-                     tidy(club), tidy(ville), e["m"].lower(), e["s"], ll[0], ll[1], "", e["mandat"]]
+        ll = geocode(ville, cache, code) or ["", ""]
+        rows[key] = [e["id"], tidy(t), e["date"][0].isoformat(), e["date"][1].isoformat(), code_disc(e["d"]),
+                     tidy(club), tidy(ville), e["m"].lower(), e["s"], ll[0], ll[1], "", e["mandat"], code]
     for e in ok:
-        if not (e["d"] or "").startswith("Para"):
+        if not is_para(e["d"]):
             continue
         t, ville, club = split(e)
         if not ville:
@@ -181,37 +212,53 @@ def build(raw, cache):
             rows[key][11] = "P"
             rows[key][12] = rows[key][12] or e["mandat"]
         else:  # para-tir sans concours « valides » correspondant : on le garde seul
-            ll = geocode(ville, cache) or ["", ""]
+            ll = geocode(ville, cache, code) or ["", ""]
             rows[key] = [e["id"], tidy(t), e["date"][0].isoformat(), e["date"][1].isoformat(),
-                         "C" if "extérieur" in e["d"] else "S", tidy(club), tidy(ville),
-                         (e["m"] or mails.get(club.lower(), "")).lower(), e["s"], ll[0], ll[1], "P", e["mandat"]]
+                         code_disc(e["d"]), tidy(club), tidy(ville),
+                         (e["m"] or mails.get(club.lower(), "")).lower(), e["s"], ll[0], ll[1], "P", e["mandat"], code]
     return sorted(rows.values(), key=lambda r: (r[2], r[1]))
+
+
+def lire_departement(val, start, end):
+    raw, ids = [], set()
+    for n in range(40):
+        ls = lines(fetch(n, start, end, val))
+        new = [e for e in parse_lines(ls) if e["id"] not in ids]
+        if not new:
+            break
+        ids.update(e["id"] for e in new)
+        raw += new
+        time.sleep(1)
+    return raw
 
 
 def main():
     today = dt.date.today()
     start, end = today.isoformat(), (today + dt.timedelta(days=366)).isoformat()
-    raw, ids = [], set()
-    for n in range(40):
-        ls = lines(fetch(n, start, end))
-        page = parse_lines(ls)
-        new = [e for e in page if e["id"] not in ids]
-        if not new:
-            if n == 0:
-                print("\n".join(ls[:80]))
-            break
-        ids.update(e["id"] for e in new)
-        raw += new
-        time.sleep(1)
-    if not raw:
-        sys.exit("Aucun concours lu : la page de la FFTA a peut-être changé.")
+    deps = departements(fetch(0, start, end))
+    if not deps:
+        sys.exit("Liste des départements introuvable : la page de la FFTA a peut-être changé.")
+    print(len(deps), "départements trouvés")
     cache = json.loads(GEO_FILE.read_text("utf-8")) if GEO_FILE.exists() else {}
-    rows = build(raw, cache)
-    if not rows:
-        sys.exit("Aucun concours exploitable : events.json n'a pas été modifié.")
+    rows, noms, echecs, vus = [], {}, [], set()
+    for code in sorted(deps):
+        try:
+            raw = lire_departement(deps[code]["val"], start, end)
+        except Exception as ex:
+            print("Échec pour le département", code, ex)
+            echecs.append(code)
+            continue
+        noms[code] = deps[code]["nom"]
+        for r in build(raw, cache, code):
+            if r[0] not in vus:          # un même concours n'est gardé qu'une fois
+                vus.add(r[0])
+                rows.append(r)
+    if len(echecs) > 5 or not rows:
+        sys.exit("Trop d'échecs (%s) ou aucun concours : les fichiers n'ont pas été modifiés." % echecs)
     GEO_FILE.write_text(json.dumps(cache, ensure_ascii=False, indent=1), "utf-8")
-    OUT_FILE.write_text(json.dumps(rows, ensure_ascii=False), "utf-8")
-    print(len(rows), "concours écrits dans", OUT_FILE)
+    Path("departements.json").write_text(json.dumps(noms, ensure_ascii=False), "utf-8")
+    OUT_FILE.write_text(json.dumps(sorted(rows, key=lambda r: (r[2], r[1])), ensure_ascii=False), "utf-8")
+    print(len(rows), "concours écrits dans", OUT_FILE, "| départements en échec :", echecs or "aucun")
 
 
 if __name__ == "__main__":
